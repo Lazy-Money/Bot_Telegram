@@ -30,7 +30,8 @@ interface Call {
   payload: Record<string, any>;
 }
 
-function harness() {
+/** `member`: estado del usuario en el grupo según Telegram. */
+function harness(member: Record<string, unknown> | null = { status: "member" }) {
   const data = new Map<string, unknown>();
   const store: Store = {
     get: async (k) => structuredClone(data.get(k)) as any,
@@ -50,6 +51,7 @@ function harness() {
   } as any, () => NOW);
 
   const calls: Call[] = [];
+  const state = { member };
   let nextId = 100;
   bot.api.config.use(async (_prev, method, payload) => {
     calls.push({ method, payload: payload as any });
@@ -57,7 +59,10 @@ function harness() {
     let result: unknown = true;
     if (method === "sendMediaGroup") result = (payload as any).media.map(msg);
     else if (method.startsWith("send")) result = msg();
-    else if (method === "getChatMember") result = { status: "administrator", user: USER };
+    else if (method === "getChatMember") {
+      if (state.member === null) return { ok: false, error_code: 400, description: "Bad Request: user not found" } as any;
+      result = { user: USER, ...state.member };
+    }
     return { ok: true, result } as any;
   });
 
@@ -123,7 +128,10 @@ function harness() {
           message_thread_id: topic,
         } as any,
       }),
-    toGroup: () => calls.filter((c) => c.payload.chat_id === GROUP),
+    /** Cambia el estado del usuario en el grupo (por ejemplo, para simular un baneo). */
+    setMember: (m: Record<string, unknown> | null) => void (state.member = m),
+    /** Mensajes enviados al grupo (sin contar consultas como getChatMember). */
+    toGroup: () => calls.filter((c) => c.payload.chat_id === GROUP && c.method !== "getChatMember"),
   };
 }
 
@@ -280,7 +288,7 @@ test("botones viejos no afectan el paso actual", async () => {
 });
 
 test("/fijar en un tema publica y fija el botón con el enlace al bot", async () => {
-  const h = harness();
+  const h = harness({ status: "administrator" });
   await h.groupCommand("/fijar", 15);
   const post = h.toGroup().find((c) => c.method === "sendMessage")!;
   assert.equal(post.payload.message_thread_id, 15);
@@ -293,7 +301,7 @@ test("/fijar en un tema publica y fija el botón con el enlace al bot", async ()
 });
 
 test("/idtema le manda los ids al admin por privado", async () => {
-  const h = harness();
+  const h = harness({ status: "administrator" });
   await h.groupCommand("/idtema", 13);
   const dm = h.calls.find((c) => c.method === "sendMessage")!;
   assert.equal(dm.payload.chat_id, USER.id);
@@ -333,4 +341,47 @@ test("calendario: el bot navega de mes y rechaza meses fuera de rango", async ()
   const before = h.calls.length;
   await h.tap("cal:6:2026-09"); // antes de hoy: se ignora
   assert.ok(!h.calls.slice(before).some((c) => c.method === "editMessageReplyMarkup"));
+});
+
+test("solo publican miembros del grupo", async () => {
+  for (const member of [
+    { status: "left" },
+    { status: "kicked", until_date: 0 },
+    { status: "restricted", is_member: true, can_send_messages: false }, // silenciado
+    { status: "restricted", is_member: false, can_send_messages: true },
+  ]) {
+    const h = harness(member);
+    await h.text("/publicar");
+    assert.match(h.lastReply(), /Solo los miembros del grupo/, JSON.stringify(member));
+    await h.text("/start exchange");
+    assert.match(h.lastReply(), /Solo los miembros del grupo/, JSON.stringify(member));
+    assert.equal(h.data.has("draft"), false);
+  }
+
+  // Un miembro restringido que sí puede escribir, puede publicar.
+  const ok = harness({ status: "restricted", is_member: true, can_send_messages: true });
+  await ok.text("/publicar");
+  assert.match(ok.lastReply(), /En qué tema/);
+});
+
+test("si banean a alguien mientras arma la publicación, no se publica", async () => {
+  const h = harness();
+  await h.text("/start exchange");
+  await h.tap(h.button("EUR"));
+  await h.tap(h.button("Cash"));
+  await h.tap(h.button("USDT"));
+  await h.tap(h.button("Saltar"));
+  await h.tap(h.button("Saltar"));
+  h.setMember({ status: "kicked", until_date: 0 });
+  await h.tap("pub");
+  assert.equal(h.toGroup().length, 0);
+  assert.match(h.lastReply(), /Solo los miembros del grupo/);
+  assert.equal(h.data.has("draft"), false);
+});
+
+test("si Telegram falla al verificar la membresía, no deja publicar", async () => {
+  const h = harness();
+  h.setMember(null); // getChatMember responde con error
+  await h.text("/publicar");
+  assert.match(h.lastReply(), /Solo los miembros del grupo/);
 });

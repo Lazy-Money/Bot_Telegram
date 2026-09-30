@@ -10,7 +10,8 @@ Corre en **Cloudflare Workers** (plan gratuito): no necesita servidor ni computa
 2. En cada tema hay un mensaje fijado con el botón **📢 Publicar**, que abre el chat privado con el bot.
 3. El bot pide los datos de a uno, valida cada respuesta (por ejemplo, el precio tiene que ser un número: no acepta «a consultar»), muestra una vista previa y recién ahí deja publicar.
 4. El bot publica en el tema correspondiente, con formato uniforme y el nombre del autor clickeable (y su @usuario si tiene), para que lo contacten por privado.
-5. En **Compra / Venta / Regalos** y **Eventos, Servicios y Avisos**, cada persona puede publicar una vez por semana por tema.
+5. **Solo publican miembros del grupo.** El bot lo verifica con Telegram al empezar y otra vez al publicar: quien no está en el grupo, se fue, fue baneado o está silenciado no puede publicar.
+6. En **Compra / Venta / Regalos** y **Eventos, Servicios y Avisos**, cada persona puede publicar una vez por semana por tema.
 
 ### Temas y datos que se piden
 

@@ -33,6 +33,9 @@ interface Draft {
 }
 
 const DRAFT = "draft";
+const NOT_MEMBER =
+  "🔒 Solo los miembros del grupo pueden publicar.\n" +
+  "Si sos miembro y ves este mensaje, avisale a un administrador.";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
@@ -57,7 +60,37 @@ export function createBot(
     return last ? Math.max(0, last + WEEK_MS - Date.now()) : 0;
   }
 
+  /**
+   * Solo publican miembros del grupo que pueden escribir en él. Deja afuera a quien nunca
+   * entró, a quien se fue, a los baneados y a los silenciados. Ante cualquier duda
+   * (grupo sin configurar, error de Telegram) responde que no.
+   */
+  async function canPost(ctx: Context): Promise<boolean> {
+    const groupId = Number(env.GROUP_ID);
+    if (!ctx.from || !Number.isSafeInteger(groupId)) return false;
+    try {
+      const member = await ctx.api.getChatMember(groupId, ctx.from.id);
+      switch (member.status) {
+        case "creator":
+        case "administrator":
+        case "member":
+          return true;
+        case "restricted":
+          return member.is_member && member.can_send_messages;
+        default:
+          return false;
+      }
+    } catch (err) {
+      console.error("No se pudo verificar la membresía", err);
+      return false;
+    }
+  }
+
   async function begin(ctx: Context, category: Category): Promise<void> {
+    if (!(await canPost(ctx))) {
+      await ctx.reply(NOT_MEMBER);
+      return;
+    }
     const wait = await waitRemaining(category);
     if (wait > 0) {
       await ctx.reply(
@@ -153,9 +186,10 @@ export function createBot(
     );
   });
 
-  pm.command("publicar", (ctx) =>
-    ctx.reply("¿En qué tema querés publicar?", { reply_markup: categoryKeyboard() }),
-  );
+  pm.command("publicar", async (ctx) => {
+    if (!(await canPost(ctx))) return ctx.reply(NOT_MEMBER);
+    await ctx.reply("¿En qué tema querés publicar?", { reply_markup: categoryKeyboard() });
+  });
 
   pm.command("cancelar", async (ctx) => {
     const draft = await loadDraft();
@@ -247,6 +281,14 @@ export function createBot(
     const category = draft && findCategory(draft.category);
     if (!draft || !category || draft.step < category.fields.length) {
       return ctx.answerCallbackQuery({ text: "No hay ninguna publicación lista para enviar." });
+    }
+    // Se vuelve a verificar: la persona pudo haber salido o sido baneada mientras armaba el aviso.
+    if (!(await canPost(ctx))) {
+      await store.delete(DRAFT);
+      await ctx.answerCallbackQuery();
+      await markAnswered(ctx, "🔒 No publicada");
+      await ctx.reply(NOT_MEMBER);
+      return;
     }
     const wait = await waitRemaining(category);
     if (wait > 0) {
