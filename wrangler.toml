@@ -1,24 +1,34 @@
 # Configuración de Cloudflare Workers.
 #
 # ACÁ NO VA NINGÚN VALOR REAL (token, IDs de grupo/temas). Ver Regla #3 en CLAUDE.md.
-# Los secretos se cargan con `wrangler secret put NOMBRE` (producción)
-# o en el archivo .dev.vars (desarrollo local, ignorado por git).
+# Los secretos se cargan en el panel de Cloudflare: Worker → Settings → Variables and Secrets,
+# siempre con tipo "Secret".
+#
+# Secretos esperados:
+#   BOT_TOKEN               token que entrega @BotFather
+#   WEBHOOK_SECRET          cadena aleatoria (letras, números, - y _) que valida que los mensajes vienen de Telegram
+#   GROUP_ID                id del supergrupo (negativo, empieza con -100)
+#   TOPIC_ALQUILER_SIN_CPR  id del tema "Alquiler sin CPR"
+#   TOPIC_ALQUILER_CON_CPR  id del tema "Alquileres con CPR"
+#   TOPIC_LABORAL           id del tema "Ofertas laborales"
+#   TOPIC_EXCHANGE          id del tema "Exchange"
+#   TOPIC_COMPRAVENTA       id del tema "Compra - Venta - Regalos"
+#   TOPIC_EVENTOS           id del tema "Eventos, Servicios y Avisos"
 
 name = "bot-telegram-publicaciones"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
-# Almacén de estado del asistente (qué paso va cada usuario, fotos ya enviadas, etc.).
-# El id se obtiene al crear el namespace: `wrangler kv namespace create SESSIONS`
-[[kv_namespaces]]
-binding = "SESSIONS"
-id = "REEMPLAZAR_CON_EL_ID_DEL_NAMESPACE"
+# Logs visibles en el panel de Cloudflare (Worker → Logs).
+[observability]
+enabled = true
 
-# Secretos esperados (cargar con `wrangler secret put`):
-#   BOT_TOKEN          token que entrega @BotFather
-#   WEBHOOK_SECRET     cadena aleatoria que valida que los mensajes vienen de Telegram
-#   GROUP_ID           id del supergrupo (negativo, empieza con -100)
-#   TOPIC_TRABAJO      id del tema "Trabajo"
-#   TOPIC_COMPRAVENTA  id del tema "Compra / Venta / Regalo"
-#   TOPIC_ALQUILERES   id del tema "Alquileres"
-#   TOPIC_DIVISAS      id del tema "Cambio de divisas"
+# Estado de cada usuario: publicación en armado y límite semanal.
+# Cloudflare lo crea solo al desplegar; no hace falta ningún id.
+[[durable_objects.bindings]]
+name = "USERS"
+class_name = "UserSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserSession"]

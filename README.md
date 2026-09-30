@@ -1,93 +1,120 @@
 # Bot de publicaciones para Telegram
 
-Bot que obliga a que las publicaciones del grupo (trabajo, compra/venta, alquileres, divisas) se hagan con un formulario guiado: fotos, zona, precio, etc. son obligatorios y no se puede publicar hasta completarlos.
+Bot que obliga a que las publicaciones del grupo se hagan con un formulario guiado: fotos, dirección, precio, etc. son obligatorios según el tema, y no se puede publicar hasta completarlos.
 
-Corre en **Cloudflare Workers** (plan gratuito): no necesita servidor propio ni un proceso corriendo 24/7. Telegram avisa por webhook cuando llega un mensaje y el código corre solo en ese momento.
+Corre en **Cloudflare Workers** (plan gratuito): no necesita servidor ni computadora prendida. Telegram avisa cuando llega un mensaje y el código corre solo en ese momento. Cloudflare despliega el bot directamente desde este repositorio de GitHub: no hay que instalar nada.
 
 ## Cómo funciona
 
 1. Los temas de publicaciones del grupo están **cerrados**: solo admins y el bot escriben ahí. El chat general sigue abierto.
-2. En cada tema hay un mensaje fijado con un botón **📢 Publicar** que abre el chat privado con el bot.
-3. El bot pide campo por campo, valida cada uno, muestra una vista previa y recién ahí deja publicar.
-4. El bot publica en el tema correspondiente con formato uniforme, con el nombre del autor clickeable y un botón **💬 Contactar**.
+2. En cada tema hay un mensaje fijado con el botón **📢 Publicar**, que abre el chat privado con el bot.
+3. El bot pide los datos de a uno, valida cada respuesta (por ejemplo, el precio tiene que ser un número: no acepta «a consultar»), muestra una vista previa y recién ahí deja publicar.
+4. El bot publica en el tema correspondiente, con formato uniforme y el nombre del autor clickeable (y su @usuario si tiene), para que lo contacten por privado.
+5. En **Compra / Venta / Regalos** y **Eventos, Servicios y Avisos**, cada persona puede publicar una vez por semana por tema.
+
+### Temas y datos que se piden
+
+| Tema | Datos |
+|---|---|
+| 🏠 Alquiler sin CPR | fotos*, dirección aproximada, alquiler mensual (DKK), incluye servicios, monto para ingresar (opcional), período disponible, amueblado, apto mascotas |
+| 🏠 Alquiler con CPR | lo mismo, con monto para ingresar obligatorio y cantidad de CPR disponibles |
+| 💼 Ofertas laborales | empresa, puesto, remuneración bruta por hora (DKK), horas semanales, ubicación, CPR necesario |
+| 💱 Exchange | divisa y formato que tiene, divisa y formato que busca (arma «Tengo X, busco Y»), monto (opcional) |
+| 🛒 Compra / Venta / Regalos | vendo/compro/regalo, fotos* (opcionales si compra), título, estado, precio (si vende), dirección |
+| 📣 Eventos, Servicios y Avisos | tipo, título, fecha (si es evento), descripción, precio (opcional), fotos (opcionales) |
+
+\* obligatorio. Todos los temas terminan con un campo opcional de comentarios o detalles. Los campos se definen en [`src/categories.ts`](src/categories.ts).
 
 ## Puesta en marcha
 
-> ⚠️ Ningún token ni ID se guarda en el repositorio. Ver `CLAUDE.md`, Regla #3.
+> ⚠️ Ningún token ni ID se guarda en el repositorio. Todos se cargan como **Secret** en el panel de Cloudflare. Ver `CLAUDE.md`, Regla #3.
 
-### 1. Crear el bot en Telegram
+### 1. Conectar el repositorio en Cloudflare
 
-1. Hablar con [@BotFather](https://t.me/BotFather) → `/newbot` → elegir nombre y usuario.
-2. Guardar el **token** que devuelve (`BOT_TOKEN`).
-3. En BotFather: `/setprivacy` → elegir el bot → **Disable**. Sin esto el bot no ve los mensajes del grupo.
-4. Agregar el bot al grupo como **administrador** con permiso para enviar mensajes, fijar mensajes y gestionar temas.
+1. En el panel de Cloudflare: **Workers & Pages** → **Create** → **Import a repository** (o «Connect to Git»).
+2. Autorizar GitHub y elegir este repositorio.
+3. Configuración:
+   - **Project name**: `bot-telegram-publicaciones` (tiene que coincidir con el `name` de `wrangler.toml`).
+   - **Production branch**: la rama donde está este código.
+   - **Build command**: vacío. **Deploy command**: `npx wrangler deploy` (el que viene por defecto).
+4. **Deploy**. Al terminar, la página del Worker muestra su dirección, del estilo `https://bot-telegram-publicaciones.<tu-cuenta>.workers.dev`.
 
-### 2. Obtener los IDs del grupo y de los temas
+Desde ahora, cada cambio que se suba a esa rama se despliega solo.
 
-- **GROUP_ID**: agregar [@getidsbot](https://t.me/getidsbot) al grupo (o reenviarle un mensaje del grupo). Es un número negativo que empieza con `-100`.
-- **ID de cada tema**: abrir el tema en Telegram Desktop o web y copiar el enlace de cualquier mensaje. Tiene la forma `https://t.me/c/<grupo>/<tema>/<mensaje>`; el número del medio es el ID del tema.
+### 2. Cargar los primeros secretos
 
-### 3. Cloudflare
+En el Worker: **Settings** → **Variables and Secrets** → **Add**, siempre con tipo **Secret**:
 
-1. Crear cuenta en [cloudflare.com](https://dash.cloudflare.com/sign-up) (gratis).
-2. Instalar dependencias y loguearse:
+| Nombre | Valor |
+|---|---|
+| `BOT_TOKEN` | el token que te dio @BotFather |
+| `WEBHOOK_SECRET` | una clave inventada, larga, solo letras, números, `-` y `_` (por ejemplo, 30 caracteres al azar) |
+| `GROUP_ID` | el id del grupo (empieza con `-100`) |
 
-   ```bash
-   npm install
-   npx wrangler login
-   ```
+### 3. Conectar Telegram con el Worker
 
-3. Crear el almacén de estado y pegar el `id` que devuelve en `wrangler.toml`:
-
-   ```bash
-   npx wrangler kv namespace create SESSIONS
-   ```
-
-4. Cargar los secretos (pide cada valor por consola, no queda en ningún archivo):
-
-   ```bash
-   npx wrangler secret put BOT_TOKEN
-   npx wrangler secret put WEBHOOK_SECRET      # cualquier cadena aleatoria larga
-   npx wrangler secret put GROUP_ID
-   npx wrangler secret put TOPIC_TRABAJO
-   npx wrangler secret put TOPIC_COMPRAVENTA
-   npx wrangler secret put TOPIC_ALQUILERES
-   npx wrangler secret put TOPIC_DIVISAS
-   ```
-
-5. Desplegar:
-
-   ```bash
-   npm run deploy
-   ```
-
-   Devuelve la URL del Worker, algo como `https://bot-telegram-publicaciones.<cuenta>.workers.dev`.
-
-### 4. Registrar el webhook en Telegram
-
-Una sola vez, reemplazando `<TOKEN>`, `<URL>` y `<SECRET>`:
+Abrir en el navegador, una sola vez:
 
 ```
-https://api.telegram.org/bot<TOKEN>/setWebhook?url=<URL>/webhook&secret_token=<SECRET>
+https://<dirección-del-worker>/setup?secret=<tu WEBHOOK_SECRET>
 ```
 
-Abrir esa dirección en el navegador. Debe responder `{"ok":true,...}`.
+Tiene que responder `✅ Webhook configurado para @TuBot`. Desde ahí el bot ya contesta: probá mandarle `/start` por privado.
 
-## Desarrollo local
+### 4. Agregar el bot al grupo y obtener los IDs de los temas
+
+1. Agregar el bot al grupo como **administrador** con permisos para enviar mensajes, borrar mensajes y fijar mensajes.
+2. Mandarle `/start` al bot por privado (si no, no puede escribirte).
+3. En cada tema de publicaciones, escribir `/idtema`. El bot borra el comando y te manda por privado el ID de ese tema.
+4. Cargarlos como **Secret** en Cloudflare:
+
+| Nombre | Tema |
+|---|---|
+| `TOPIC_ALQUILER_SIN_CPR` | Alquiler sin CPR |
+| `TOPIC_ALQUILER_CON_CPR` | Alquileres con CPR |
+| `TOPIC_LABORAL` | Ofertas laborales |
+| `TOPIC_EXCHANGE` | Exchange |
+| `TOPIC_COMPRAVENTA` | Compra - Venta - Regalos |
+| `TOPIC_EVENTOS` | Eventos, Servicios y Avisos |
+
+### 5. Fijar el botón y cerrar los temas
+
+1. En cada tema de publicaciones, escribir `/fijar`. El bot publica y fija el mensaje con el botón **📢 Publicar**.
+2. Cerrar cada tema de publicaciones (en Telegram: abrir el tema → editar → **Cerrar tema**). El chat general queda como está.
+3. Probar una publicación completa con una cuenta que no sea admin.
+
+## Comandos
+
+| Dónde | Comando | Qué hace |
+|---|---|---|
+| Privado | `/publicar` | Elegir tema y armar una publicación |
+| Privado | `/cancelar` | Descartar la publicación en curso |
+| Grupo (admins) | `/idtema` | Te manda por privado el ID del grupo y del tema |
+| Grupo (admins) | `/fijar` | Publica y fija el botón «📢 Publicar» del tema |
+
+## Si algo no funciona
+
+- **El bot no contesta**: revisar que `/setup` haya respondido ✅ y que `BOT_TOKEN` y `WEBHOOK_SECRET` estén cargados. Los errores se ven en el Worker → **Logs**.
+- **«El bot todavía no está configurado para este tema»**: falta el `TOPIC_*` de ese tema o `GROUP_ID`.
+- **`/fijar` no hace nada**: el bot tiene que ser admin y `GROUP_ID` tiene que estar cargado.
+
+## Desarrollo
+
+Para quien quiera modificar el código en una computadora con Node.js:
 
 ```bash
-cp .dev.vars.example .dev.vars   # completar con valores reales; el archivo está ignorado por git
+npm install
+npm test          # simula conversaciones completas, sin llamar a Telegram
 npm run typecheck
-npm run dev
 ```
-
-## Estructura
 
 ```
 src/
-  index.ts       entrada del Worker: recibe el webhook y valida el secreto
-  bot.ts         comandos del bot (/start, /publicar) y menú de categorías
-  categories.ts  categorías y sus campos, definidos como datos
-  env.ts         variables de entorno que espera el Worker
+  index.ts       entrada del Worker: webhook, filtro de updates y /setup
+  session.ts     Durable Object por usuario: procesa sus mensajes en orden y guarda su estado
+  bot.ts         asistente paso a paso, publicación y comandos de admin
+  categories.ts  temas y sus campos, definidos como datos
+  format.ts      validación de montos y armado del texto de la publicación
+test/            tests con una API de Telegram simulada
 wrangler.toml    configuración de Cloudflare (sin valores reales)
 ```
