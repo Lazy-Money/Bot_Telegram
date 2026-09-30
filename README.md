@@ -16,7 +16,7 @@ Corre en **Cloudflare Workers** (plan gratuito): no necesita servidor ni computa
 
 | Tema | Datos |
 |---|---|
-| 🏠 Alquiler sin CPR | fotos*, dirección aproximada, alquiler mensual (DKK), incluye servicios, monto para ingresar (opcional), período disponible, amueblado, apto mascotas |
+| 🏠 Alquiler sin CPR | fotos*, dirección aproximada, alquiler mensual (DKK), incluye servicios, monto para ingresar (opcional), período disponible (fechas de inicio y fin elegidas en un calendario; sin fechas pasadas), amueblado, apto mascotas |
 | 🏠 Alquiler con CPR | lo mismo, con monto para ingresar obligatorio y cantidad de CPR disponibles |
 | 💼 Ofertas laborales | empresa, puesto, remuneración bruta por hora (DKK), horas semanales, ubicación, CPR necesario |
 | 💱 Exchange | divisa y formato que tiene, divisa y formato que busca (arma «Tengo X, busco Y»), monto (opcional) |
@@ -115,6 +115,7 @@ src/
   bot.ts         asistente paso a paso, publicación y comandos de admin
   categories.ts  temas y sus campos, definidos como datos
   format.ts      validación de montos y armado del texto de la publicación
+  dates.ts       fechas y calendario con botones
 test/            tests con una API de Telegram simulada
 wrangler.toml    configuración de Cloudflare (sin valores reales)
 ```

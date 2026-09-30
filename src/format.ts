@@ -76,7 +76,9 @@ export function renderPost(category: Category, data: Data, author: Author): stri
     if (field.type === "photos" || field.hideInPost || !applies(field, data)) continue;
     const value = data[field.key];
     if (value === undefined) continue;
-    lines.push(`<b>${escapeHtml(field.label)}:</b> ${escapeHtml(displayValue(field, value))}`);
+    const shown = field.display ? field.display(data) : displayValue(field, value);
+    if (shown === undefined) continue;
+    lines.push(`<b>${escapeHtml(field.label)}:</b> ${escapeHtml(shown)}`);
   }
 
   lines.push("", `👤 Publicado por ${authorHtml(author)}`);

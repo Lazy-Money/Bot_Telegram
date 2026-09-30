@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import type { Update } from "grammy/types";
 import { createBot, type Store } from "../src/bot.ts";
 import { parseNumber, formatNumber } from "../src/format.ts";
+import { addMonths, calendarKeyboard, todayIso } from "../src/dates.ts";
 import type { Env } from "../src/env.ts";
 
 const GROUP = -1000000000001; // id ficticio
@@ -18,6 +19,9 @@ const env = {
   TOPIC_COMPRAVENTA: "15",
   TOPIC_EVENTOS: "16",
 } as Env;
+
+/** "Hoy" fijo para los tests: 5 de octubre de 2026 al mediodía en Dinamarca. */
+const NOW = new Date("2026-10-05T10:00:00Z");
 
 const USER = { id: 42, is_bot: false, first_name: "Ana", last_name: "Pérez", username: "anap" };
 
@@ -43,7 +47,7 @@ function harness() {
     supports_inline_queries: false,
     can_connect_to_business: false,
     has_main_web_app: false,
-  } as any);
+  } as any, () => NOW);
 
   const calls: Call[] = [];
   let nextId = 100;
@@ -161,7 +165,15 @@ test("alquiler sin CPR: exige fotos y número, permite saltear el monto de ingre
   await h.text("8.500 kr");
   await h.tap(h.button("Sí")); // servicios
   await h.tap(h.button("Saltar")); // monto para ingresar (opcional sin CPR)
-  await h.text("del 1/11 al 31/1");
+  await h.tap(h.button("fecha de fin")); // período limitado
+  await h.text("1/11"); // escribir la fecha no vale: hay que usar el calendario
+  assert.match(h.lastReply(), /calendario/);
+  await h.tap("day:6:2026-10-01"); // fecha pasada
+  assert.match(h.calls.at(-1)!.payload.text, /no está disponible/);
+  await h.tap("day:6:2026-11-01");
+  await h.tap("day:7:2026-11-01"); // la fecha de fin tiene que ser posterior
+  assert.match(h.calls.at(-1)!.payload.text, /no está disponible/);
+  await h.tap("day:7:2027-01-31");
   await h.tap(h.button("No")); // amueblado
   await h.tap(h.button("Sí")); // mascotas
   await h.tap(h.button("Saltar")); // comentarios
@@ -180,6 +192,7 @@ test("alquiler sin CPR: exige fotos y número, permite saltear el monto de ingre
   assert.match(caption, /8\.500 DKK/);
   assert.match(caption, /Incluye servicios:<\/b> Sí/);
   assert.doesNotMatch(caption, /Monto para ingresar/);
+  assert.match(caption, /Período disponible:<\/b> del 01\/11\/2026 al 31\/01\/2027/);
   assert.match(caption, /tg:\/\/user\?id=42">Ana Pérez<\/a> · @anap/);
   assert.equal(h.data.has("draft"), false);
 });
@@ -195,7 +208,8 @@ test("alquiler con CPR: el monto de ingreso es obligatorio y pide cantidad de CP
   await h.tap("s:4"); // intentar saltear el monto de ingreso
   assert.match(h.calls.at(-1)!.payload.text, /obligatorio/);
   await h.text("18000");
-  await h.text("desde el 1/12");
+  await h.tap(h.button("sin fecha de fin"));
+  await h.tap(h.button("Hoy")); // botón "Hoy" del calendario de inicio
   await h.text("1,5");
   assert.match(h.lastReply(), /entero/);
   await h.text("2");
@@ -208,6 +222,7 @@ test("alquiler con CPR: el monto de ingreso es obligatorio y pide cantidad de CP
   assert.equal(post.payload.message_thread_id, 12);
   assert.match(post.payload.caption, /CPR disponibles:<\/b> 2/);
   assert.match(post.payload.caption, /Monto para ingresar:<\/b> 18\.000 DKK/);
+  assert.match(post.payload.caption, /Período disponible:<\/b> desde el 05\/10\/2026 \(sin fecha de fin\)/);
 });
 
 test("exchange arma la frase «Tengo … busco …» y no pide formato para USDT", async () => {
@@ -283,4 +298,39 @@ test("/idtema le manda los ids al admin por privado", async () => {
   const dm = h.calls.find((c) => c.method === "sendMessage")!;
   assert.equal(dm.payload.chat_id, USER.id);
   assert.match(dm.payload.text, /ID del tema: <code>13<\/code>/);
+});
+
+test("calendario: semana desde el lunes, días pasados deshabilitados y navegación acotada", () => {
+  assert.equal(todayIso(NOW), "2026-10-05");
+  assert.equal(addMonths("2026-12", 1), "2027-01");
+  assert.equal(addMonths("2026-01", -1), "2025-12");
+
+  // Octubre 2026 empieza un jueves.
+  const kb = calendarKeyboard(3, "2026-10", "2026-10-05", "2027-10-05", "2026-10-05").inline_keyboard;
+  assert.equal(kb[0][0].text, "\u2800", "no se puede ir a un mes anterior al mínimo");
+  assert.equal((kb[0][2] as any).callback_data, "cal:3:2026-11");
+  assert.deepEqual(kb[1].map((b) => b.text), ["L", "M", "X", "J", "V", "S", "D"]);
+  const firstWeek = kb[2].map((b) => b.text);
+  assert.deepEqual(firstWeek, ["\u2800", "\u2800", "\u2800", "·", "·", "·", "·"]);
+  assert.equal((kb[3][0] as any).callback_data, "day:3:2026-10-05");
+  assert.match(kb.at(-1)![0].text, /Hoy \(05\/10\)/);
+});
+
+test("calendario: el bot navega de mes y rechaza meses fuera de rango", async () => {
+  const h = harness();
+  await h.text("/start alquiler_sin_cpr");
+  await h.photo("f1");
+  await h.tap(h.button("Listo"));
+  await h.text("Cope");
+  await h.text("4000");
+  await h.tap(h.button("Sí"));
+  await h.tap(h.button("Saltar"));
+  await h.tap(h.button("sin fecha de fin"));
+  await h.tap("cal:6:2026-11");
+  const edit = h.calls.at(-1)!;
+  assert.equal(edit.method, "editMessageReplyMarkup");
+  assert.match(JSON.stringify(edit.payload.reply_markup), /Noviembre 2026/);
+  const before = h.calls.length;
+  await h.tap("cal:6:2026-09"); // antes de hoy: se ignora
+  assert.ok(!h.calls.slice(before).some((c) => c.method === "editMessageReplyMarkup"));
 });

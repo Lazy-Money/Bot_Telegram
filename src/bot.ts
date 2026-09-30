@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard, type Api, type Context } from "grammy";
+import { Bot, GrammyError, InlineKeyboard, type Api, type Context } from "grammy";
 import type { User, UserFromGetMe } from "grammy/types";
 import type { Env } from "./env.ts";
 import {
@@ -10,7 +10,9 @@ import {
   promptFor,
   type Category,
   type Data,
+  type DateField,
 } from "./categories.ts";
+import { addDays, calendarKeyboard, formatDate, isValidIso, monthOf, todayIso } from "./dates.ts";
 import { MAX_CAPTION, parseNumber, renderPost, type Author } from "./format.ts";
 
 /** Almacenamiento del usuario (en producción, el storage de su Durable Object). */
@@ -37,7 +39,12 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * Arma el bot. Cada usuario tiene su propio `store`, y sus mensajes se procesan de a uno
  * (ver session.ts), así que acá no hay condiciones de carrera entre updates del mismo usuario.
  */
-export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot {
+export function createBot(
+  env: Env,
+  store: Store,
+  botInfo?: UserFromGetMe,
+  now: () => Date = () => new Date(),
+): Bot {
   const bot = new Bot(env.BOT_TOKEN, { botInfo });
   bot.catch((err) => console.error("Error procesando update", err.error));
 
@@ -72,10 +79,19 @@ export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot 
   async function ask(ctx: Context, draft: Draft, category: Category): Promise<void> {
     const field = category.fields[draft.step];
     const keyboard = new InlineKeyboard();
+    if (field.type === "date") {
+      const { min, max } = dateRange(field, draft.data);
+      await ctx.reply(promptFor(field, draft.data), {
+        reply_markup: calendarKeyboard(draft.step, monthOf(min), min, max, field.after ? undefined : min),
+      });
+      return;
+    }
     if (field.type === "choice") {
+      // Opciones largas, una por fila para que no se corten en el celular.
+      const perRow = field.options.some((o) => o.length > 12) ? 1 : 2;
       field.options.forEach((option, i) => {
         keyboard.text(option, `v:${draft.step}:${i}`);
-        if (i % 2 === 1) keyboard.row();
+        if (i % perRow === perRow - 1) keyboard.row();
       });
     } else if (isOptional(field, draft.data)) {
       // Para fotos opcionales, "Listo" sin fotos equivale a saltear.
@@ -101,6 +117,16 @@ export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot 
     await ctx.reply("👀 Así se va a ver tu publicación:");
     await sendPost(ctx.api, user.id, undefined, renderPost(category, draft.data, authorOf(user)), draft.photos);
     await ctx.reply("¿Está todo bien?", { reply_markup: confirmKeyboard() });
+  }
+
+  /**
+   * Fechas elegibles: desde hoy (o desde el día siguiente a la fecha de `after`)
+   * hasta un año después de esa base.
+   */
+  function dateRange(field: DateField, data: Data): { min: string; max: string } {
+    const base = field.after ? String(data[field.after]) : todayIso(now());
+    const min = field.after ? addDays(base, 1) : base;
+    return { min, max: addDays(base, 365) };
   }
 
   /** Carga el borrador y verifica que el botón tocado corresponda al paso actual. */
@@ -168,6 +194,40 @@ export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot 
     await advance(ctx, draft, category);
   });
 
+  // Calendario: cambiar de mes.
+  pm.callbackQuery(/^cal:(\d+):(\d{4}-\d{2})$/, async (ctx) => {
+    const current = await draftAtStep(ctx, Number(ctx.match[1]));
+    if (!current || current.field.type !== "date") return;
+    const { min, max } = dateRange(current.field, current.draft.data);
+    const month = ctx.match[2];
+    await ctx.answerCallbackQuery();
+    if (month < monthOf(min) || month > monthOf(max)) return;
+    await ctx
+      .editMessageReplyMarkup({
+        reply_markup: calendarKeyboard(current.draft.step, month, min, max, current.field.after ? undefined : min),
+      })
+      .catch(() => {});
+  });
+
+  // Calendario: elegir un día.
+  pm.callbackQuery(/^day:(\d+):(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const current = await draftAtStep(ctx, Number(ctx.match[1]));
+    if (!current || current.field.type !== "date") return;
+    const { draft, category, field } = current;
+    const date = ctx.match[2];
+    const { min, max } = dateRange(field, draft.data);
+    if (!isValidIso(date) || date < min || date > max) {
+      return ctx.answerCallbackQuery({ text: "Esa fecha no está disponible, elegí otra.", show_alert: true });
+    }
+    draft.data[field.key] = date;
+    await ctx.answerCallbackQuery();
+    await markAnswered(ctx, formatDate(date));
+    await advance(ctx, draft, category);
+  });
+
+  // Celdas decorativas del calendario.
+  pm.callbackQuery("noop", (ctx) => ctx.answerCallbackQuery());
+
   // "✅ Listo" / "Saltar" en el paso de fotos.
   pm.callbackQuery(/^d:(\d+)$/, async (ctx) => {
     const current = await draftAtStep(ctx, Number(ctx.match[1]));
@@ -214,8 +274,10 @@ export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot 
       messageId = await sendPost(ctx.api, groupId, topicId, text, draft.photos);
     } catch (err) {
       console.error("No se pudo publicar en el grupo", err);
+      const reason = err instanceof GrammyError ? err.description : String(err);
       await ctx.reply(
-        "❌ No pude publicar en el grupo. Tu publicación sigue guardada: probá de nuevo en un rato o avisale a un administrador.",
+        "❌ No pude publicar en el grupo. Tu publicación sigue guardada: probá de nuevo en un rato o avisale a un administrador.\n\n" +
+          `Motivo: ${reason}`,
         { reply_markup: confirmKeyboard() },
       );
       return;
@@ -302,6 +364,9 @@ export function createBot(env: Env, store: Store, botInfo?: UserFromGetMe): Bot 
         return ctx.reply("En este paso mandá fotos y después tocá ✅ Listo.");
       case "choice":
         await ctx.reply("Elegí una de las opciones con los botones 👇");
+        return ask(ctx, draft, category);
+      case "date":
+        await ctx.reply("Elegí la fecha tocando el día en el calendario 👇");
         return ask(ctx, draft, category);
       case "text":
         if (text.length < field.min) return ctx.reply("Es muy corto, contá un poco más.");

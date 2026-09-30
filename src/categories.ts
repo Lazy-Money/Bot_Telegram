@@ -1,4 +1,5 @@
 import type { TopicVar } from "./env.ts";
+import { formatDate } from "./dates.ts";
 
 /**
  * Categorías de publicación y sus campos.
@@ -24,6 +25,8 @@ interface BaseField {
   optional?: boolean | Condition;
   /** No se muestra como línea propia en la publicación (ya aparece en el título o resumen). */
   hideInPost?: boolean;
+  /** Valor a mostrar en la publicación, si no es la respuesta tal cual (puede combinar varios campos). */
+  display?: (data: Data) => string | undefined;
 }
 
 export interface PhotosField extends BaseField {
@@ -47,7 +50,14 @@ export interface ChoiceField extends BaseField {
   options: string[];
 }
 
-export type Field = PhotosField | TextField | NumberField | ChoiceField;
+/** Fecha elegida en un calendario de botones; se guarda como "AAAA-MM-DD". */
+export interface DateField extends BaseField {
+  type: "date";
+  /** La fecha tiene que ser posterior a la de este otro campo. Si no, desde hoy. */
+  after?: string;
+}
+
+export type Field = PhotosField | TextField | NumberField | ChoiceField | DateField;
 
 export interface Category {
   key: string;
@@ -76,6 +86,9 @@ const comentarios: TextField = {
   max: 300,
   optional: true,
 };
+
+const LIMITED = "Sí, tiene fecha de fin";
+const UNLIMITED = "No, sin fecha de fin";
 
 function rentalFields(withCpr: boolean): Field[] {
   const fields: Field[] = [
@@ -123,12 +136,29 @@ function rentalFields(withCpr: boolean): Field[] {
     {
       key: "periodo",
       label: "📅 Período disponible",
-      prompt:
-        "📅 ¿Desde cuándo y hasta cuándo está disponible?\n" +
-        "Por ejemplo: «del 1/11 al 31/1» o «desde el 1/11, sin fecha de fin».",
-      type: "text",
-      min: 3,
-      max: 100,
+      prompt: "📅 ¿El alquiler es por un período limitado?",
+      type: "choice",
+      options: [LIMITED, UNLIMITED],
+      display: (d) =>
+        d.periodo === LIMITED
+          ? `del ${formatDate(String(d.desde))} al ${formatDate(String(d.hasta))}`
+          : `desde el ${formatDate(String(d.desde))} (sin fecha de fin)`,
+    },
+    {
+      key: "desde",
+      label: "Desde",
+      prompt: "📅 ¿Desde qué día está disponible? Elegilo en el calendario.",
+      type: "date",
+      hideInPost: true,
+    },
+    {
+      key: "hasta",
+      label: "Hasta",
+      prompt: "📅 ¿Hasta qué día? Elegilo en el calendario.",
+      type: "date",
+      after: "desde",
+      when: (d) => d.periodo === LIMITED,
+      hideInPost: true,
     },
   ];
   if (withCpr) {
