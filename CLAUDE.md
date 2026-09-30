@@ -16,3 +16,11 @@ Ante **cualquier** pedido del usuario, sin excepciones:
 - Leer y explorar el código para poder entender bien el pedido está permitido antes de confirmar; modificar, no.
 - Si el usuario corrige mi interpretación, ajusto y vuelvo a pedir confirmación antes de actuar.
 - Un pedido nuevo o un cambio de alcance requiere una nueva confirmación; la anterior no se arrastra.
+
+## Regla #2: Entrada por transcriptor de voz
+
+El usuario me habla mediante un transcriptor de voz, por lo que el texto de sus pedidos puede contener errores de transcripción (por ejemplo, "cloud.md" en lugar de "CLAUDE.md").
+
+- Cuando algo suene raro o no cuadre con el contexto, interpreto lo más probable en lugar de tomarlo literalmente.
+- No hace falta marcar cada error menor; alcanza con actuar sobre la interpretación correcta.
+- Si la duda es real y puede cambiar lo que hay que hacer (nombres de archivos, comandos, valores, alcance), la planteo en el paso de confirmación de la Regla #1 en vez de asumirla.
