@@ -1,0 +1,10 @@
+# Copiar a `.dev.vars` (ignorado por git) y completar con los valores reales.
+# NUNCA subir el archivo .dev.vars ni pegar estos valores en el repo.
+
+BOT_TOKEN=123456789:ejemplo-token-de-botfather
+WEBHOOK_SECRET=cadena-aleatoria-larga
+GROUP_ID=-1000000000000
+TOPIC_TRABAJO=0
+TOPIC_COMPRAVENTA=0
+TOPIC_ALQUILERES=0
+TOPIC_DIVISAS=0

@@ -24,3 +24,12 @@ El usuario me habla mediante un transcriptor de voz, por lo que el texto de sus 
 - Cuando algo suene raro o no cuadre con el contexto, interpreto lo más probable en lugar de tomarlo literalmente.
 - No hace falta marcar cada error menor; alcanza con actuar sobre la interpretación correcta.
 - Si la duda es real y puede cambiar lo que hay que hacer (nombres de archivos, comandos, valores, alcance), la planteo en el paso de confirmación de la Regla #1 en vez de asumirla.
+
+## Regla #3: Información sensible nunca va a GitHub
+
+Tokens del bot, IDs de grupo/temas/usuarios, claves de Cloudflare o cualquier credencial **nunca** se escriben en archivos versionados: ni en código, ni en README, ni en mensajes de commit, ni en `wrangler.toml`. Aplica aunque el repositorio fuera privado.
+
+- Los valores reales se cargan solo como secretos en Cloudflare (`wrangler secret put`) y, para desarrollo local, en `.dev.vars`, que está en `.gitignore`.
+- El código y la documentación usan siempre nombres de variables o valores de ejemplo, nunca reales.
+- Si el usuario me pasa un dato sensible por chat, lo uso para indicarle dónde cargarlo; no lo escribo en el repo.
+- Antes de cada commit reviso el diff buscando tokens, IDs numéricos de Telegram o claves.

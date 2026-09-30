@@ -1,0 +1,24 @@
+# Configuración de Cloudflare Workers.
+#
+# ACÁ NO VA NINGÚN VALOR REAL (token, IDs de grupo/temas). Ver Regla #3 en CLAUDE.md.
+# Los secretos se cargan con `wrangler secret put NOMBRE` (producción)
+# o en el archivo .dev.vars (desarrollo local, ignorado por git).
+
+name = "bot-telegram-publicaciones"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# Almacén de estado del asistente (qué paso va cada usuario, fotos ya enviadas, etc.).
+# El id se obtiene al crear el namespace: `wrangler kv namespace create SESSIONS`
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "REEMPLAZAR_CON_EL_ID_DEL_NAMESPACE"
+
+# Secretos esperados (cargar con `wrangler secret put`):
+#   BOT_TOKEN          token que entrega @BotFather
+#   WEBHOOK_SECRET     cadena aleatoria que valida que los mensajes vienen de Telegram
+#   GROUP_ID           id del supergrupo (negativo, empieza con -100)
+#   TOPIC_TRABAJO      id del tema "Trabajo"
+#   TOPIC_COMPRAVENTA  id del tema "Compra / Venta / Regalo"
+#   TOPIC_ALQUILERES   id del tema "Alquileres"
+#   TOPIC_DIVISAS      id del tema "Cambio de divisas"

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+
+# Secretos locales (ver Regla #3 en CLAUDE.md)
+.dev.vars
+.env
+.env.*
